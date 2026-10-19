@@ -110,16 +110,17 @@ def load(path):
     D={"F":F,"cons":cons,"rech":rech,"pv":pv,"amt":amt,"rows":rows}
     if not cons: raise SystemExit("[错误] 无「消费」记录")
     D["company"]=(cons[0][F["company"]] if F["company"] else "（未提供企业名）")
-    # 人
+    # 人（子账号ID 为空 = 主账号直用，统一记「主账号」，不再显示「（未知）」）
+    MAIN_TAG="主账号"
     person=defaultdict(lambda:{"积分":0,"次数":0,"金额":0.0,"模型":Counter(),"cat":Counter()})
     for r in cons:
-        p=person[r[F["person"]] or "（未知）"]
+        p=person[(r[F["person"]] or "").strip() or MAIN_TAG]
         p["积分"]+=pv(r); p["次数"]+=1; p["金额"]+=amt(r)
         if F["model"]: p["模型"][r[F["model"]]]+=1
         p["cat"][cat(r[F["model"]]) if F["model"] else "视频生成"]+=1
     D["person"]=person; D["people"]=sorted(person,key=lambda k:-person[k]["积分"])
-    # 人员键归一：回填到原始行，保证后续按人过滤时口径一致（如「子账号ID」为空回退「（未知）」）
-    for r in cons+rech: r["_p"]=r[F["person"]] or "（未知）"
+    # 人员键归一：回填到原始行，保证后续按人过滤时口径一致
+    for r in cons+rech: r["_p"]=(r[F["person"]] or "").strip() or MAIN_TAG
     # 无子账号场景标记（企业版导出但未开子账号，全记主账号名下）
     D["no_sub"]=all((r[F["person"]] or "").strip()=="" for r in cons)
     D["TOT_JI"]=sum(person[k]["积分"] for k in D["people"])
@@ -217,7 +218,7 @@ def build_client(D,out):
     for j,h in enumerate(["关注点","数字","说明"],2): ws.cell(row=r,column=j,value=h)
     hrow(ws,r,3); ws.cell(row=r,column=4,value="说明"); ws.merge_cells(f"D{r}:E{r}")
     # 三件事·谁花得最多：无子账号场景显示主账号而非「（未知）」
-    top_name="主账号（未开子账号）" if D.get("no_sub") and people[0]=="（未知）" else people[0]
+    top_name="主账号（未开子账号）" if D.get("no_sub") and people[0]=="主账号" else people[0]
     three=[("还能烧多久",f"{left:.1f} 天",f"剩余 {BALANCE:,} 积分 ÷ 近7天日均 {round(r7avg):,} 积分/天"),
            ("谁花得最多",f"{top_name} · "+(f"¥{person[people[0]]['金额']:,.0f}" if has_amt else f"{person[people[0]]['积分']:,}分"),f"占总量 {person[people[0]]['积分']/TOT_JI*100:.1f}%，高配调用 {hi_cnt.get(people[0],0)} 笔（≥400分）"),
            ("理论上能省多少",(f"¥{SAVE_AMT:,.0f}（{SAVE/TOT_JI*100:.0f}%）" if has_amt else f"{SAVE:,} 积分（{SAVE/TOT_JI*100:.0f}%）"),(f"PIXDANCE_2_5 的 {len(p25)} 次调用降级到 FAST 可省 {SAVE:,} 积分" if has_model else "需含 AI模型 字段方可用"))]
@@ -232,13 +233,13 @@ def build_client(D,out):
     for j,h in enumerate(["#","异常现象","涉及账号","数据","疑似原因"],1): ws.cell(row=r,column=j,value=h)
     hrow(ws,r,5)
     exts=sorted([r_ for r_ in D["cons"] if D["pv"](r_)>=800],key=lambda r_:-D["pv"](r_))
-    anom=[("1","单次消耗破纪录",(("主账号" if D.get("no_sub") else exts[0]["_p"])+" "+exts[0]["_d"] if exts else "-"),
+    anom=[("1","单次消耗破纪录",((exts[0]["_p"] if exts else "-")+" "+exts[0]["_d"] if exts else "-"),
            (f"{len(exts)} 笔 ≥800 分，最高 {D['pv'](exts[0]):,} 分" if exts else "无"),"疑似测试超长/超清生成"),
           ("2","高价调用高度集中",top_name,
            f"{hi_cnt.get(people[0],0)} 笔 ≥400 分（{hi_ji.get(people[0],0):,} 分），占全部高配 {hi_ji.get(people[0],0)/HI_J*100:.0f}%" if HI_J else "-","该账号惯用高配参数"),
           ("3","贵模型占比过高",("全体" if has_model else "N/A"),
            (f"PIXDANCE_2_5 仅 {len(p25)} 次却占 {J25/TOT_JI*100:.0f}% 积分" if has_model else "无模型字段"),"模型定位高配，需评估场景"),
-          ("4","消耗突然加速","全体",(spike_txt if spike else "-"),("进入密集产出期" if spike>1.3 else ("节奏平稳/回落" if spike else "-"))),
+          ("4",("消耗突然加速" if spike>1.3 else "消耗节奏变化"),"全体",(spike_txt if spike else "-"),("进入密集产出期" if spike>1.3 else ("节奏平稳/回落" if spike else "-"))),
           ("5","高配调用总量",f"{HI_N} 笔",f"占全部调用 {HI_N/TOT_CNT*100:.1f}%，却消耗 {HI_J/TOT_JI*100:.1f}% 积分","少数高配操作吃掉大块积分")]
     for i,row_ in enumerate(anom):
         rr=r+1+i
@@ -349,8 +350,8 @@ def build_client(D,out):
     # ---- 按人汇总 ----
     pname="操作人" if F["person"]=="账号姓名" else "子账号ID"
     if D.get("no_sub"): pname="账号"  # 无子账号场景，列头不再叫「子账号ID」
-    # 无子账号时行名「（未知）」替换为「主账号（未开子账号）」
-    disp=lambda s: ("主账号（未开子账号）" if s=="（未知）" and D.get("no_sub") else s)
+    # 无子账号时行名「主账号」替换为「主账号（未开子账号）」
+    disp=lambda s: ("主账号（未开子账号）" if s=="主账号" and D.get("no_sub") else s)
     ws4=wb.create_sheet("按人汇总"); ttl(ws4,f"按人（{pname}）消耗汇总 —— 人效成本侧","K")
     heads=["排名",pname,"消耗积分","调用次数(次)","花费(元)","单次积分(积分/次)","主力模型(调用最多)","视频类(次)","图片类(次)","超分(次)","占总比"]
     for j,h in enumerate(heads,1): ws4.cell(row=2,column=j,value=h)
