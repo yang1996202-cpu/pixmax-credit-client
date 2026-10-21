@@ -209,8 +209,19 @@ def build_client(D,out):
     wb=Workbook()
     # ---- 老板重点 ----
     ws=wb.active; ws.title="老板重点"
-    ttl(ws,f"老板重点速览 · {ENT}","E")
-    r=3
+    ttl(ws,f"老板重点速览 · {ENT}（{days[0]} ~ {days[-1]}）","E")
+    r=2
+    d0=date(*map(int,days[0].split("-"))); d1=date(*map(int,days[-1].split("-")))
+    span=(d1-d0).days+1
+    used_days=len(day); gap=span-used_days
+    for lab,val in [("消耗区间",f"{days[0]} → {days[-1]}"),
+                    ("覆盖天数",f"{span} 天（有消耗 {used_days} 天 / 断档 {gap} 天）"),
+                    ("数据截止",f"{days[-1]}（导出请核对是否含最新日期）")]:
+        a=ws.cell(row=r,column=1,value=lab); a.font=F_B; a.fill=FIN; a.border=Border(bottom=thin); a.alignment=AC
+        b=ws.cell(row=r,column=2,value=val); b.font=Font(bold=True,size=11,color=xl("#1F3864")); b.alignment=AL; ws.merge_cells(f"B{r}:E{r}")
+        for j2 in range(1,6): ws.cell(row=r,column=j2).border=Border(bottom=thin)
+        r+=1
+    r+=1
     c=ws.cell(row=r,column=1,value=f"结论：剩余 {BALANCE:,} 积分，按近7天速度约够 {left:.1f} 天；累计消耗 {TOT_JI:,} 积分"+(f"（¥{TOT_AMT:,.2f}）" if has_amt else "")+f"，共 {TOT_CNT:,} 次调用。")
     c.font=Font(bold=True,size=12,color=DANGER); c.fill=FW; c.alignment=AL; ws.merge_cells(f"A{r}:E{r}")
     r+=2
@@ -234,13 +245,13 @@ def build_client(D,out):
     hrow(ws,r,5)
     exts=sorted([r_ for r_ in D["cons"] if D["pv"](r_)>=800],key=lambda r_:-D["pv"](r_))
     anom=[("1","单次消耗破纪录",((exts[0]["_p"] if exts else "-")+" "+exts[0]["_d"] if exts else "-"),
-           (f"{len(exts)} 笔 ≥800 分，最高 {D['pv'](exts[0]):,} 分" if exts else "无"),"疑似测试超长/超清生成"),
-          ("2","高价调用高度集中",top_name,
-           f"{hi_cnt.get(people[0],0)} 笔 ≥400 分（{hi_ji.get(people[0],0):,} 分），占全部高配 {hi_ji.get(people[0],0)/HI_J*100:.0f}%" if HI_J else "-","该账号惯用高配参数"),
-          ("3","贵模型占比过高",("全体" if has_model else "N/A"),
-           (f"PIXDANCE_2_5 仅 {len(p25)} 次却占 {J25/TOT_JI*100:.0f}% 积分" if has_model else "无模型字段"),"模型定位高配，需评估场景"),
-          ("4",("消耗突然加速" if spike>1.3 else "消耗节奏变化"),"全体",(spike_txt if spike else "-"),("进入密集产出期" if spike>1.3 else ("节奏平稳/回落" if spike else "-"))),
-          ("5","高配调用总量",f"{HI_N} 笔",f"占全部调用 {HI_N/TOT_CNT*100:.1f}%，却消耗 {HI_J/TOT_JI*100:.1f}% 积分","少数高配操作吃掉大块积分")]
+           (f"{len(exts)} 笔 ≥800 分，最高 {D['pv'](exts[0]):,} 分" if exts else "无"),("单次成本高（数据事实）" if exts else "无异常")),
+          ("2","高价调用集中度",top_name,
+           f"{hi_cnt.get(people[0],0)} 笔 ≥400 分（{hi_ji.get(people[0],0):,} 分），占全部高配 {hi_ji.get(people[0],0)/HI_J*100:.0f}%" if HI_J else "无 ≥400 分调用","仅陈述分布，不做归因"),
+          ("3",("贵模型占比" if has_model else "N/A"),("全体" if has_model else "N/A"),
+           (f"PIXDANCE_2_5 仅 {len(p25)} 次却占 {J25/TOT_JI*100:.0f}% 积分" if has_model else "无模型字段"),"高价档调用，成本影响见上行"),
+          ("4",("消耗突然加速" if spike>1.3 else "消耗节奏变化"),"全体",(spike_txt if spike else "-"),("周环比明显上升（数据事实）" if spike>1.3 else ("节奏平稳/回落（数据事实）" if spike else "-"))),
+          ("5","高配调用总量",f"{HI_N} 笔",f"占全部调用 {HI_N/TOT_CNT*100:.1f}%，却消耗 {HI_J/TOT_JI*100:.1f}% 积分" if HI_N else "无高配调用","少数调用占大头积分（数据事实）")]
     for i,row_ in enumerate(anom):
         rr=r+1+i
         for j,v in enumerate(row_,1):
@@ -252,11 +263,43 @@ def build_client(D,out):
     c=ws.cell(row=r,column=2,value=f"用量在涨（最近两周占 {last2/TOT_JI*100:.0f}%） × 用贵模型（{J25/TOT_JI*100:.0f}% 积分来自 PIXDANCE_2_5） × 用高配参数（{HI_J/TOT_JI*100:.0f}% 积分来自 {HI_N} 笔高配）" if has_model else f"用量在涨（最近两周占 {last2/TOT_JI*100:.0f}%）× 高配参数（{HI_J/TOT_JI*100:.0f}% 积分来自 {HI_N} 笔高配调用）")
     c.font=F_B; c.alignment=AL; ws.merge_cells(f"B{r}:E{r}")
     r+=2
-    ws.cell(row=r,column=1,value="④ 建议动作").font=F_SUB; r+=1
-    acts=[f"1. 提醒客户充值（按当前速度 {left:.1f} 天见底）。",
-          f"2. 排查 {top_name} 的高配调用是否都必要。",
-          f"3. 核实单次 ≥800 分的调用是什么任务。",
-          "4. 对高价模型建立使用规范：非必要场景降级。" ] if has_model else [f"1. 提醒客户充值（{left:.1f} 天见底）。","2. 排查高配调用是否必要。","3. 观察消耗加速趋势。"]
+    if has_model:
+        s7d=(d1-timedelta(days=6)).isoformat()
+        m7=defaultdict(lambda:{"积分":0,"次数":0}); mpre=defaultdict(lambda:{"积分":0,"次数":0})
+        for r_ in D["cons"]:
+            if not r_.get(F["model"]) or not r_[F["model"]]: continue
+            tgt=m7 if r_["_d"]>=s7d else mpre
+            tgt[r_[F["model"]]]["积分"]+=D["pv"](r_); tgt[r_[F["model"]]]["次数"]+=1
+        J7=sum(v["积分"] for v in m7.values()); Jpre=sum(v["积分"] for v in mpre.values())
+        C7=sum(v["次数"] for v in m7.values()); Cpre=sum(v["次数"] for v in mpre.values())
+        if J7 or Jpre:
+            u7=J7/C7 if C7 else 0; upre=Jpre/Cpre if Cpre else 0
+            trend="档位平稳" if (not upre or abs(u7-upre)/upre<=0.10) else ("单价上探（转向更贵配置）" if u7>upre else "单价下探（转向更便宜配置）")
+            mset=[m for m in sorted(set(m7)|set(mpre),key=lambda m:-m7[m]["积分"]) if m7[m]["积分"]>0 or (Jpre and mpre[m]["积分"]/Jpre*100>=1.0)]
+            top7=mset[0] if mset else "-"
+            ws.cell(row=r,column=1,value=f"④ 近7天模型动态（{s7d[5:]} ~ {days[-1][5:]} vs 前期）").font=F_SUB; r+=1
+            c=ws.cell(row=r,column=1,value=f"近7天共耗 {J7:,} 积分 / {C7:,} 次；单次均价 {u7:.0f} 分 vs 前期 {upre:.0f} 分 → {trend}。主力：{top7} 占近7天 {(m7[top7]['积分']/J7*100 if J7 and top7!='-' else 0):.0f}%。")
+            c.font=F_B; c.alignment=AL; ws.merge_cells(f"A{r}:E{r}"); r+=2
+            for j,h in enumerate(["AI模型","近7天积分","近7天占比","前期占比","占比变化"],1): ws.cell(row=r,column=j,value=h)
+            hrow(ws,r,5)
+            for i,m in enumerate(mset):
+                rr2=r+1+i; s7v=m7[m]["积分"]; spv=mpre[m]["积分"]
+                p7=s7v/J7*100 if J7 else 0; pp=spv/Jpre*100 if Jpre else 0
+                ws.cell(row=rr2,column=1,value=m)
+                ws.cell(row=rr2,column=2,value=s7v).number_format="#,##0"
+                for col,v in [(3,p7),(4,pp),(5,p7-pp)]:
+                    cc=ws.cell(row=rr2,column=col,value=f"{v:+.1f}%" if col==5 else f"{v:.1f}%"); cc.alignment=AR
+                    cc.font=Font(color=DANGER) if p7>pp else (Font(color=GREEN) if p7<pp else F_NOTE)
+                for j in range(1,6): ws.cell(row=rr2,column=j).border=Border(bottom=thin)
+            r=r+1+len(mset)+1
+    ws.cell(row=r,column=1,value="⑤ 建议动作").font=F_SUB; r+=1
+    acts=[f"1. 提醒客户充值（按当前速度 {left:.1f} 天见底）。"]
+    if HI_N: acts.append(f"2. 排查 {top_name} 的高配调用（≥400 分共 {HI_N} 笔）是否都必要。")
+    if exts: acts.append(f"3. 核实单次 ≥800 分的调用（共 {len(exts)} 笔，最高 {D['pv'](exts[0]):,} 分）是什么任务。")
+    if has_model and J25 and len(acts)<4:
+        n=str(len(acts)+1)
+        acts.append(f"{n}. 高价档 PIXDANCE_2_5 占 {J25/TOT_JI*100:.0f}% 积分，可评估非必要场景降级。")
+    if len(acts)<2: acts.append("2. 用量结构正常，按常规节奏跟进即可。")
     for i,a in enumerate(acts):
         c=ws.cell(row=r+i,column=2,value=a); c.alignment=AL; ws.merge_cells(f"B{r+i}:E{r+i}")
     for j,w_ in enumerate([4,22,20,34,40],1): ws.column_dimensions[get_column_letter(j)].width=w_
@@ -572,7 +615,9 @@ def build_client(D,out):
     ws_top.add_chart(ch3,"H41")
 
     wb.properties.title="积分消耗分析（客户视角）"
-    out_path=os.path.join(out,f"积分消耗分析_客户视角_{ENT[:12]}.xlsx")
+    span_tag=f"{days[0].replace('-','')[2:]}-{days[-1].replace('-','')[2:]}"
+    gone="耗尽" if (POOL and TOT_JI/POOL>=0.95) else "进行中"
+    out_path=os.path.join(out,f"积分消耗分析_客户视角_{ENT[:12]}_{span_tag}消耗{gone}.xlsx")
     wb.save(out_path); return out_path
 
 # ============ 视角二：PIXMAX 业务 ============
