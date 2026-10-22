@@ -150,11 +150,11 @@ def load(path):
         except: D["BALANCE"]=0
     else: D["BALANCE"]=0
     if F["ptype"]:
-        D["PAID"]=sum(pv(r) for r in rech if (r[F["ptype"]] or "")=="活动充值积分")
+        D["PAID"]=sum(pv(r) for r in rech if (r[F["ptype"]] or "") in ("活动充值积分","充值积分"))
         D["POOL"]=sum(pv(r) for r in rech)
         ck=defaultdict(int)
         for r in cons: ck[r[F["ptype"]]]+=pv(r)
-        D["PAID_USED"]=ck.get("活动充值积分",0)
+        D["PAID_USED"]=ck.get("活动充值积分",0)+ck.get("充值积分",0)
     else:
         D["PAID"]=0; D["POOL"]=sum(pv(r) for r in rech) or D["TOT_JI"]; D["PAID_USED"]=0
     # 节奏
